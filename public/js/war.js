@@ -303,7 +303,7 @@ var Entity = Backbone.Model.extend(
             /*if(neighbors.size() > 0)
                 console.log("neighbors: " + neighbors.size());*/
 
-            var entity = this.getClosestEntity(_(neighbors.filter(function (entity) { return this.get("firedBy") && entity.get("color") !== this.get("firedBy").get("color"); }, this)));
+            var entity = this.getClosestEntity(_(neighbors.filter(function (entity) { return !this.get("firedBy") || (entity.get("color") !== this.get("firedBy").get("color")); }, this)));
 
             /*if(typeof entity != "undefined")
                 console.log("entity was defined");*/
