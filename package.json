@@ -1,0 +1,14 @@
+{
+    "name": "war",
+    "description": "Tech demo of physics simulation, collision detection, flocking algorithms, HTML5 features (canvas, etc.), and so much more...",
+    "version": "0.0.1",
+    "author": {
+        "name": "David Straub",
+        "email": "Scinvention@gmail.com"
+    },
+    "private": true,
+    "dependencies": {
+      "express": "2.5.10"
+    },
+    "engine": "node >= 0.8.8"
+}
