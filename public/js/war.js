@@ -124,8 +124,9 @@ this.viewportWidth = window.innerWidth || $(window).width() || 1800;
 this.viewportHeight = window.innerHeight || $(window).height() || 800;
 
 this.killStats = {};
+this.entityCounts = { Entity: 0, Proj: 0 };
 
-var Entity = Backbone.Model.extend(
+var Entity = app.Entity = Backbone.Model.extend(
 // Instance properties.
 {
     defaults: {
@@ -137,6 +138,8 @@ var Entity = Backbone.Model.extend(
         accel: Vector.Zero(3),
         jerk: Vector.Zero(3),
 
+        playerControlled: false,
+
         maxVel: 3,
         maxAccel: 0.5,
         maxJerk: 1,
@@ -147,8 +150,13 @@ var Entity = Backbone.Model.extend(
 
         firingRate: 1000, // Can fire once every x milliseconds.
         lastFired: 0,
+        accuracy: 0.5,
+
+        edgeMode: "constrain",
 
         health: 100,
+        maxHealth: 100,
+        healRate: 0,
 
         distanceTraveled: 0,
         range: Infinity
@@ -158,6 +166,20 @@ var Entity = Backbone.Model.extend(
 
     initialize: function () {
         this.on('error', this.handleError, this);
+        if(this instanceof Proj){
+            app.entityCounts.Proj++;
+        }
+
+        // Setup special team attributes.
+        if(!(this instanceof Proj)){
+            var teamDefaults = Entity.teamDefaults[this.get("color")];
+            if(teamDefaults) {
+                var defaults = _.result(this, 'defaults');
+                if(defaults){
+                    this.attributes = _.defaults({}, teamDefaults, this.attributes);
+                }
+            }
+        }
     },
     destroy: function () {
         this.trigger("destroy", this, this.collection, {});
@@ -171,6 +193,9 @@ var Entity = Backbone.Model.extend(
         var indexY = _.indexOf(app.entities.sortedBy.posY, this);
         if(indexY >= 0){
             app.entities.sortedBy.posY.splice(indexY, 1);
+        }
+        if(this instanceof Proj){
+            app.entityCounts.Proj--;
         }
     },
     
@@ -198,50 +223,56 @@ var Entity = Backbone.Model.extend(
             posV = this.get("pos"),
             neighbors;
 
-        var doImpulse = false;
-        var segments = app.segmentsOverride || 5;
-        var currentSegment = app.tickPhase % segments;
-        var segLoc = index / total;
-        // do the impulse (jerk) calculations only if we're in the current segment.
-        if(currentSegment/segments <= segLoc && (currentSegment+1)/segments > segLoc){
-            doImpulse = true;
-        }
+        if(this.get("playerControlled")){
 
-        if(this.get("maxJerk") > 0 && doImpulse){
 
-            neighbors = _(this.findNeighbors(app.entities, 150));
+        } else {
 
-            this.attributes.neighbors = neighbors;
-
-            if(time && time - this.get("lastFired") >= this.get("firingRate")){
-                neighbors.find(function(entity){
-                    if(this.get("color") === entity.get("color")) return;
-
-                    this.fireProjectileAt(entity);
-
-                    return true;
-                }, this);
-                this.set("lastFired", time);
+            var doImpulse = false;
+            var segments = app.segmentsOverride || 5;
+            var currentSegment = app.tickPhase % segments;
+            var segLoc = index / total;
+            // do the impulse (jerk) calculations only if we're in the current segment.
+            if(currentSegment/segments <= segLoc && (currentSegment+1)/segments > segLoc){
+                doImpulse = true;
             }
 
-            jerkV = this.flock(neighbors)
-                            .add(this.avoidOther(neighbors, 100).multiply(50));
+            if(this.get("maxJerk") > 0 && doImpulse){
 
-            if(typeof(app.mouseX) != "undefined") {
-                jerkV = jerkV.add(this.avoidPosition(Vector.create([app.mouseX, app.mouseY, 0]), 150).multiply(100));
+                neighbors = _(this.findNeighbors(app.entities, 150));
+
+                this.attributes.neighbors = neighbors;
+
+                if(time && time - this.get("lastFired") >= this.get("firingRate") && app.entityCounts.Proj < app.entities.size()/2){
+                    neighbors.find(function(entity){
+                        if(this.get("color") === entity.get("color")) return;
+
+                        this.fireProjectileAt(entity);
+
+                        return true;
+                    }, this);
+                    this.attributes.lastFired = time;
+                }
+
+                jerkV = this.flock(neighbors)
+                                .add(this.avoidOther(neighbors, 100).multiply(50));
+
+                if(typeof(app.mouseX) != "undefined") {
+                    jerkV = jerkV.add(this.avoidPosition(Vector.create([app.mouseX, app.mouseY, 0]), 150).multiply(100));
+                }
+
+                jerkV = jerkV.add(this.avoidPosition(Vector.create([75, 30, 0]), 200).multiply(150));
+
+                jerkV = jerkV.add(this.avoidEdges(50).multiply(3));
+
+                if(this.getVectMag(jerkV) === 0){
+                    jerkV = jerkV.add(this.wander());
+                }
+
+                jerkV = this.constrainVectorMag(jerkV, this.get("maxJerk"));
+
+                accelV = this.constrainVectorMag(accelV.add(jerkV), this.get("maxAccel"));
             }
-
-            jerkV = jerkV.add(this.avoidPosition(Vector.create([75, 30, 0]), 150).multiply(100));
-
-            jerkV = jerkV.add(this.avoidEdges(100).multiply(1.5));
-
-            if(this.getVectMag(jerkV) === 0){
-                jerkV = jerkV.add(this.wander());
-            }
-
-            jerkV = this.constrainVectorMag(jerkV, this.get("maxJerk"));
-
-            accelV = this.constrainVectorMag(accelV.add(jerkV), this.get("maxAccel"));
         }
 
         if(this.get("maxAccel") > 0){
@@ -308,7 +339,7 @@ var Entity = Backbone.Model.extend(
             /*if(typeof entity != "undefined")
                 console.log("entity was defined");*/
 
-            if(entity && entity !== this.get("firedBy")){
+            if(entity && entity !== this.get("firedBy") && !(entity instanceof Proj)){
                 var entityPosV = entity.get("pos");
 
                 if(this.isWithinDistanceGhetto(entityPosV,
@@ -321,23 +352,17 @@ var Entity = Backbone.Model.extend(
         }
 
         // Heal a small amount each tick.
-        if(this.get("health") < 100) this.heal(0.1);
+        if(this.get("healRate") && this.get("health") < this.get("maxHealth")) this.heal(this.get("healRate"));
 
-        var newProps = {
-            jerk: jerkV,
-            accel: accelV,
-            vel: velV,
-            pos: posV
-        };
+        this.attributes.jerk  = jerkV;
+        this.attributes.accel = accelV;
+        this.attributes.vel   = velV;
+        this.attributes.pos   = posV;
 
         if(app.recordTiming) window.time.stop("entity - tick");
 
-        //this.set(newProps, { silent: true });
-        _.extend(this.attributes, newProps);
-        this.trigger("change");
-
-        //if(this.cid === "c9")
-            //console.log(newProps);
+        if(this.view) this.view.render();
+        //this.trigger("change");
     },
 
     fireProjectileAt: function (at) {
@@ -352,7 +377,7 @@ var Entity = Backbone.Model.extend(
             ticksToAt = distance/Proj.prototype.defaults.maxVel,
 
             projVel = atPosV
-                .add(atVelV.multiply(ticksToAt*(1.1+app.random()*0.2))) // Skate to where the puck is going to be; 1.2 is THE magic number.
+                .add(atVelV.multiply(ticksToAt*(1+0.2+(app.random()*0.2-0.1)))) // Skate to where the puck is going to be; 1.2 is THE magic number.
                 .subtract(posV).toUnitVector().multiply(Proj.prototype.defaults.maxVel);
 
         for(var i = 0; i < 1; i++){
@@ -375,6 +400,11 @@ var Entity = Backbone.Model.extend(
         
         $container.append($(elems));
 
+        /*_(projectiles).each(function (proj) {
+            app.view.insertSorted(app.entities, proj);
+        }, this);*/
+        //app.view.sortEntities(app.entities);
+
         app.projectiles.add(projectiles);
     },
 
@@ -387,9 +417,7 @@ var Entity = Backbone.Model.extend(
 
             radius = this.get("radius");
 
-        app.view.spawnEntity({
-            color: color
-        });
+        this.respawn();
         this.destroy();
 
         app.backdropCtx.fillStyle = color;
@@ -418,6 +446,15 @@ var Entity = Backbone.Model.extend(
         var newHealth = this.get("health") + amount;
         this.attributes.health = newHealth;
     },
+    respawn: function () {
+        var color = this.get("color");
+
+        setTimeout(function(){
+            app.view.spawnEntity({
+                color: color
+            });
+        }, 1000+(app.random()*9000));
+    },
 
     findNeighbors: function (entities, neighborhoodRadius) {
         /*var neighborsNaive = this.findNeighborsNaive(entities, neighborhoodRadius),
@@ -440,7 +477,7 @@ var Entity = Backbone.Model.extend(
         var walked = 0;
 
         Array.prototype.push.apply(neighbors, entities.filter(function(entity){
-            if(entity === me) return;
+            if(entity === me || entity instanceof Proj) return;
             var entityPosV = entity.get("pos"),
                 distance = posV.distanceFrom(entityPosV);
 
@@ -473,20 +510,25 @@ var Entity = Backbone.Model.extend(
         // This especially causes significant error when an entity wraps around the map.
         // This could be improved by sorting after every Entity moves,
         // at the cost of performance implications.
-        var seen = {};
-        Array.prototype.push.apply(filteredEntities, this.walkSortedList(seen, entities.sortedBy.posX, "x", 1, neighborhoodRadius, posInX));
-        Array.prototype.push.apply(filteredEntities, this.walkSortedList(seen, entities.sortedBy.posX, "x", -1, neighborhoodRadius, posInX));
-        // Get close entities in the sortedBy.posY list.
-        Array.prototype.push.apply(filteredEntities, this.walkSortedList(seen, entities.sortedBy.posY, "y", 1, neighborhoodRadius, posInY));
-        Array.prototype.push.apply(filteredEntities, this.walkSortedList(seen, entities.sortedBy.posY, "y", -1, neighborhoodRadius, posInY));
+        var seen = {},
 
-        var walked = 0;
+            walkLimit = 6,
+
+            sortedListX = entities.sortedBy.posX,
+            sortedListY = entities.sortedBy.posY,
+
+            sortedIndexX = _.sortedIndex(sortedListX, this, function(entity){ return entity.getPosX(); }),
+            sortedIndexY = _.sortedIndex(sortedListY, this, function(entity){ return entity.getPosY(); });
+
+        Array.prototype.push.apply(filteredEntities, this.walkSortedList(seen, sortedIndexX, sortedListX, "x", 1,  neighborhoodRadius, posInX, walkLimit));
+        Array.prototype.push.apply(filteredEntities, this.walkSortedList(seen, sortedIndexX, sortedListX, "x", -1, neighborhoodRadius, posInX, walkLimit));
+        // Get close entities in the sortedBy.posY list.
+        Array.prototype.push.apply(filteredEntities, this.walkSortedList(seen, sortedIndexY, sortedListY, "y", 1,  neighborhoodRadius, posInY, walkLimit));
+        Array.prototype.push.apply(filteredEntities, this.walkSortedList(seen, sortedIndexY, sortedListY, "y", -1, neighborhoodRadius, posInY, walkLimit));
 
         Array.prototype.push.apply(neighbors, _(filteredEntities).filter(function(entity){
             var entityPosV = entity.get("pos")/*,
                 distance = posV.distanceFrom(entityPosV)*/;
-
-            walked++;
 
             /*if(distance < neighborhoodRadius){*/
             if(this.isWithinDistanceGhetto(entityPosV, neighborhoodRadius)){
@@ -499,32 +541,38 @@ var Entity = Backbone.Model.extend(
 
         return neighbors;
     },
-    walkSortedList: function(seen, list, axis, dir, range, posInAxis){
+    walkSortedList: function(seen, sortedIndex, sortedList, axis, dir, range, posInAxis, walkLimit){
         var foundEntities = [],
-        highDist = 0,
-        listLength = list.length,
-        dirSign = dir ? dir < 0 ? -1 : 1 : 0,
-        step = (1*dirSign),
-        currIndex = _.indexOf(list, this);
+            highDist = 0,
+            listLength = sortedList.length,
+            dirSign = dir ? dir < 0 ? -1 : 1 : 0,
+            step = (1*dirSign),
+            currIndex = sortedIndex;
+            //currIndex = sortedList[sortedIndex] === this ? sortedIndex : -1;//_.indexOf(sortedList, this, /* isSorted */ false);
 
         // Account for trying to use the sorted list
         // from an entity not on the list.
-        if(currIndex === -1){
-            var closestEntity = this.getClosestEntity(list);
-            currIndex = _.indexOf(list, _.find(list, function(entity){
+        /*if(currIndex === -1){
+            console.warn("Expensive op: Called walkSortedList() from entity not on sorted list.");
+
+            var closestEntity = this.getClosestEntity(sortedList);
+            currIndex = _.indexOf(sortedList, _.find(sortedList, function(entity){
                 return entity === closestEntity;
             }));
-        }
+        }*/
 
-        while( currIndex >= 0 && currIndex < listLength && highDist < range ){
-            var entity = list[currIndex];
-            if(entity && !seen[entity.cid] && entity !== this){
-                seen[entity.cid] = true;
+        var walked = 0;
+
+        while( currIndex >= 0 && currIndex < listLength && highDist < range && (!walkLimit || walked <= walkLimit) ){
+            var entity = sortedList[currIndex];
+            if(entity && !seen[entity.cid] && entity !== this && !(entity instanceof Proj)){
 
                 var thisPosInAxis = entity[axis === "x" ? "getPosX" : "getPosY"]();
                 foundEntities.push(entity);
                 highDist = Math.abs(thisPosInAxis - posInAxis);
+                walked++;
             }
+            seen[entity.cid] = true;
             currIndex += step;
         }
 
@@ -586,12 +634,10 @@ var Entity = Backbone.Model.extend(
             count = 0;
 
         entities.each(function(entity){
-            if(entity.get("color") != color) return;
+            if(entity.get("color") !== color) return;
 
-            var entityPosV = entity.get("pos"),
-                distance = posV.distanceFrom(entityPosV);
+            var entityPosV = entity.get("pos");
 
-            /*if(distance > 0 && distance < neighborhoodRadius){*/
             if(this.isWithinDistanceGhetto(entityPosV, neighborhoodRadius)){
                 sum = sum.add(entityPosV);
                 count++;
@@ -600,7 +646,6 @@ var Entity = Backbone.Model.extend(
 
         if(count > 0){
             sum = sum.map(function(x){ return x / count; });
-            //console.log("sum: "+sum.inspect());
             return this.steerTo(sum);
         } else {
             return sum; // Empty vector contributes nothing
@@ -608,21 +653,12 @@ var Entity = Backbone.Model.extend(
     },
 
     steerTo: function (target) {
-        //console.log("target: " + target.inspect());
 
         var posV = this.get("pos");
 
-        /*console.log("posX: " + posX);
-        console.log("posY: " + posY);
-        console.log("posV: " + posV.inspect());*/
-
         var desiredV = target.subtract(posV);
 
-        //console.log("desiredV: " + desiredV.inspect());
-
         var distance = this.getVectMag(desiredV);
-
-        //console.log("distance: " + distance);
 
         if(distance > 0){
             desiredV = desiredV.toUnitVector();
@@ -634,20 +670,8 @@ var Entity = Backbone.Model.extend(
                 desiredV = desiredV.multiply(this.get("maxVel"));
             }
 
-            //console.log("desiredV: " + desiredV.inspect());
-
-            var velV = this.get("vel");
-
-            //console.log("velV: " + velV.inspect());
-
-            var steer = desiredV.subtract(velV);
-
-            //console.log("steer: " + steer.inspect());
-
-            steer = this.constrainVectorMag(steer, this.get("maxJerk"));
-            //console.log("steer: " + steer.inspect());
-
-            //exit();
+            //var steer = this.constrainVectorMag(desiredV.subtract(this.get("vel")), this.get("maxJerk"));
+            var steer = desiredV.subtract(this.get("vel"));
 
             return steer;
         }
@@ -666,10 +690,8 @@ var Entity = Backbone.Model.extend(
             if(entity.get("color") != color) return;
 
             var entityPosV = entity.get("pos"),
-                entityVelV = entity.get("vel"),
-                distance = posV.distanceFrom(entityPosV);
+                entityVelV = entity.get("vel");
 
-            /*if(distance > 0 && distance < neighborhoodRadius){*/
             if(this.isWithinDistanceGhetto(entityPosV, neighborhoodRadius)){
                 mean = mean.add(entityVelV);
                 count++;
@@ -678,8 +700,6 @@ var Entity = Backbone.Model.extend(
 
         if(count > 0)
             mean = mean.map(function(x){ return x / count; }).toUnitVector();
-
-        //mean = this.constrainVectorMag(mean, this.get("maxJerk"));
 
         return mean;
     },
@@ -694,24 +714,18 @@ var Entity = Backbone.Model.extend(
 
         entities.each(function(entity){
             if(entity.get("color") != color) return;
-            //console.log("each entity");
+
             var entityPosV = entity.get("pos"),
                 distance = posV.distanceFrom(entityPosV);
 
-            //console.log(distance);
-
-            /*if(distance > 0 && distance < desiredDistance){*/
-            if(this.isWithinDistanceGhetto(entityPosV, desiredDistance)){
+            if(distance < desiredDistance){
                 mean = mean.add(posV.subtract(entityPosV).toUnitVector().map(function(x){ return x / distance; }));
-                //console.log("mean:" + mean.inspect());
                 count++;
             }
         }, this);
 
         if(count > 0)
             mean = mean.map(function(x){ return x / count; });
-
-        //console.log("mean:" + mean.inspect());
 
         return mean;
     },
@@ -726,16 +740,12 @@ var Entity = Backbone.Model.extend(
 
         entities.each(function(entity){
             if(entity.get("color") == color) return;
-            //console.log("each entity");
+
             var entityPosV = entity.get("pos"),
                 distance = posV.distanceFrom(entityPosV);
 
-            //console.log(distance);
-
-            /*if(distance > 0 && distance < desiredDistance){*/
-            if(this.isWithinDistanceGhetto(entityPosV, desiredDistance)){
+            if(distance < desiredDistance){
                 mean = mean.add(posV.subtract(entityPosV).toUnitVector().map(function(x){ return x / distance; }));
-                //console.log("mean:" + mean.inspect());
                 count++;
             }
         }, this);
@@ -743,18 +753,14 @@ var Entity = Backbone.Model.extend(
         if(count > 0)
             mean = mean.map(function(x){ return x / count; });
 
-        //console.log("mean:" + mean.inspect());
-
         return mean;
     },
 
     avoidPosition: function (avoidV, desiredDistance) {
         var posV = this.get("pos"),
-
             distance = posV.distanceFrom(avoidV);
 
-        /*if(distance < desiredDistance){*/
-        if(this.isWithinDistanceGhetto(avoidV, desiredDistance)){
+        if(distance < desiredDistance){
             return posV.subtract(avoidV).toUnitVector().map(function(x){ return x / distance; });
         }
 
@@ -798,11 +804,14 @@ var Entity = Backbone.Model.extend(
     },
 
     getVectMag: function (vect) {
+        return Math.sqrt(this.getVectMagGhetto(vect));
+    },
+    getVectMagGhetto: function (vect) {
         var sumPow = 0;
         vect.each(function(x, i) {
             sumPow += Math.pow(x, 2);
         });
-        return Math.sqrt(sumPow);
+        return sumPow;
     },
 
     constrainVectorMag: function (vect, maxMag) {
@@ -878,6 +887,33 @@ var Entity = Backbone.Model.extend(
     }
 });
 
+Entity.teamDefaults = {
+    // Speed
+    green: {
+        firingRate: 500,
+        maxVel: Entity.prototype.defaults.maxVel*1.4,
+        maxAccel: Entity.prototype.defaults.maxAccel*1.6,
+        damage: 20
+    },
+    // Firepower
+    red: {
+        firingRate: 150,
+        maxVel: Entity.prototype.defaults.maxVel*0.6
+    },
+    // Health
+    blue: {
+        health: 150,
+        maxHealth: 150,
+        healRate: 0.05
+    },
+    // Explosives
+    orange: {
+        health: 100,
+        maxHealth: 100,
+        damage: 49
+    }
+};
+
 var EntityView = Backbone.View.extend({
 
     tagName: 'div',
@@ -885,7 +921,7 @@ var EntityView = Backbone.View.extend({
     
     initialize: function (args) {
         this.model.view = this;
-        this.listenTo(this.model, 'change', _.bind(this.render, this));
+        //this.listenTo(this.model, 'change', _.bind(this.render, this));
 
         var radius = this.model.get("radius"),
             diam = radius * 2,
@@ -916,6 +952,8 @@ var EntityView = Backbone.View.extend({
             '-ms-transform-origin': radius+'px '+radius+'px',
             'transform-origin': radius+'px '+radius+'px'
         }).addClass(this.model.cid);
+
+        this.elemStyle = this.el.style;
     },
 
     events: {
@@ -935,15 +973,9 @@ var EntityView = Backbone.View.extend({
             velY = this.model.getVelY(),
             posX = this.model.getPosX(),
             posY = this.model.getPosY();
-
-        var degree = this.model.radsToDegrees(this.model.get("vel").angleFrom(Vector.j));
-        if(velX > 0) degree = -degree;
         
         // Update entity element CSS.
-        this.$el.css({
-            /*backgroundColor: this.model.get("color"),
-            width: diam,
-            height: diam,*/
+        /*this.$el.css({
             top: (posY-radius)+"px",
             left: (posX-radius)+"px",
 
@@ -954,7 +986,8 @@ var EntityView = Backbone.View.extend({
             'transform': 'rotate(' + degree + 'deg)',
 
             'opacity': (this.model.get("health")/100)*0.5+0.5
-        });
+        });*/
+        this.updateStyles(posX, posY, velX, radius);
 
         // Draw color trail.
         app.backdropCtx.beginPath();
@@ -1018,7 +1051,7 @@ var EntityView = Backbone.View.extend({
         }
 
         // Draw smoke for damaged entity.
-        if(this.model.get("health") < 25 && app.tickPhase % 8 === 0 && !(this.model instanceof Proj)){
+        if(this.model.get("health") < this.model.get("maxHealth")/4 && app.tickPhase % 8 === 0 && !(this.model instanceof Proj)){
             app.backdropCtx.beginPath();
             app.backdropCtx.fillStyle = "gray";
             // arc(centerX, centerY, radius, 0, 2 * Math.PI, false);
@@ -1029,6 +1062,37 @@ var EntityView = Backbone.View.extend({
         if(app.recordTiming) time.stop("entity - render");
         
         return this;
+    },
+
+    // http://jsperf.com/style-versus-jquery-css/8
+    updateStyles: function(posX, posY, velX, radius) {
+        var style = this.elemStyle,
+            lastDegree = this.lastDegree,
+            degree = this.model.radsToDegrees(this.model.get("vel").angleFrom(Vector.j)),
+            lastOpacity = this.lastOpacity,
+            opacity = (this.model.get("health")/100)*0.5+0.5;
+
+        if(velX > 0) degree = -degree;
+
+        style.top = (posY-radius)+"px";
+        style.left = (posX-radius)+"px";
+
+        if(lastDegree !== degree) {
+            var rotateStr = 'rotate(' + degree + 'deg)';
+            style['-webkit-transform'] = rotateStr;
+            style['-moz-transform'] = rotateStr;
+            style['-o-transform'] = rotateStr;
+            style['-ms-transform'] = rotateStr;
+            style.transform = rotateStr;
+
+            this.lastDegree = degree;
+        }
+
+        if(lastOpacity !== opacity){
+            style.opacity = opacity;
+
+            this.lastOpacity = opacity;
+        }
     },
 
     drawDirectionalIndicator: function (ctx, diffX, diffY, scale, style, width) {
@@ -1070,7 +1134,7 @@ var EntityCollection = Backbone.Collection.extend({
   model: Entity
 });
 
-var Proj = Entity.extend({
+var Proj = app.Proj = Entity.extend({
     defaults: _.extend({}, Entity.prototype.defaults, {
         maxJerk: 0,
         maxAccel: 0,
@@ -1086,7 +1150,7 @@ var Proj = Entity.extend({
         //console.log("projectile collided with entity: " + entity.cid);
         var firedBy = this.get("firedBy");
 
-        if(entity.injure(20) && firedBy){
+        if(entity.injure((firedBy && firedBy.get("damage")) || 20) && firedBy){
             app.killStats[firedBy.get("color")] = app.killStats[firedBy.get("color")] || { kills: 0, deaths: 0 };
             app.killStats[firedBy.get("color")].kills++;
             app.view.renderKillStats();
@@ -1169,7 +1233,7 @@ var AppView = Backbone.View.extend({
         _(entities).each(function (entity) {
             this.insertSorted(this.model.entities, entity);
         }, this);
-        this.sortEntities(this.model.entities);
+        //this.sortEntities(this.model.entities);
     },
     spawnEntity: function(obj){
         var $container = this.$el,
@@ -1186,7 +1250,7 @@ var AppView = Backbone.View.extend({
         // Insert these entities into the proper locations in
         // the custom sortedBy lists.
         this.insertSorted(this.model.entities, entity);
-        this.sortEntities(this.model.entities);
+        //this.sortEntities(this.model.entities);
     },
 
     // Takes a collection of Entities and updates its custom
@@ -1203,19 +1267,19 @@ var AppView = Backbone.View.extend({
     },
     insertSorted: function(entities, entity){
         var posXArr = entities.sortedBy.posX,
-            posYArr = entities.sortedBy.posY;/*,
+            posYArr = entities.sortedBy.posY,
 
-            indexX = _.sortedIndex(posXArr, entity, Entity.compareByPosX),
-            indexY = _.sortedIndex(posYArr, entity, Entity.compareByPosY);*/
+            indexX = _.sortedIndex(posXArr, entity, function(entity){ return entity.getPosX(); }),
+            indexY = _.sortedIndex(posYArr, entity, function(entity){ return entity.getPosY(); });
 
         //Array.prototype.splice.apply(posXArr, [indexX, 0, entity]);
         //Array.prototype.splice.apply(posYArr, [indexY, 0, entity]);
 
-        /*posXArr.splice(indexX, 0, entity);
-        posYArr.splice(indexY, 0, entity);*/
+        posXArr.splice(indexX, 0, entity);
+        posYArr.splice(indexY, 0, entity);
 
-        posXArr.push(entity);
-        posYArr.push(entity);
+        /*posXArr.push(entity);
+        posYArr.push(entity);*/
     },
 
     events: {
@@ -1238,6 +1302,7 @@ var AppView = Backbone.View.extend({
             projectiles.push(new Proj({
                 color: "black",
                 radius: 2,
+                range: 150,
                 pos: Vector.create([app.mouseX, app.mouseY, 0]),
                 vel: Vector.Random(2).to3D().map(randomizeSign).toUnitVector().multiply(Proj.prototype.defaults.maxVel)
             }));
@@ -1249,8 +1314,6 @@ var AppView = Backbone.View.extend({
         _(projectiles).each(function (proj) {
             elems.push((new ProjView({ model: proj })).render().el);
         });
-        
-        console.log(elems);
         
         $container.append($(elems));
 
@@ -1328,7 +1391,7 @@ function SimpleMovingAverager(period) {
     };
 }
 
-var frameRateAverager = new SimpleMovingAverager(10);
+var frameRateAverager = new SimpleMovingAverager(3);
 
 this.framesSeen = 0;
 this.lastSecond = 0;
@@ -1349,12 +1412,13 @@ this.tick = function tick (time) {
     // The overlay layer should not persist.
     this.overlayCtx.clearRect(0, 0, app.overlay.width, app.overlay.height);
 
+    var entitiesLength = app.entities.models.length,
+        projsLength = app.projectiles.models.length;
     this.entities.each(function (entity, index) {
-        entity.tick(time, index, app.entities.models.length);
+        entity.tick(time, index, entitiesLength);
     });
-
     this.projectiles.each(function (proj, index) {
-        proj.tick(time, index, app.projectiles.models.length);
+        proj.tick(time, index, projsLength);
     });
 
     this.view.sortEntities(this.entities);
@@ -1382,6 +1446,10 @@ this.tick = function tick (time) {
     window.requestAnimationFrame(_.bind(tick, this));
 };
 
+this.updateAll = function (attr, value) {
+    this.entities.each(function(it){ it.attributes[attr] = value; });
+};
+
 this.target = Vector.create([0,0,0]);
 
 this.getEntDist = function(a,b){
@@ -1390,6 +1458,11 @@ this.getEntDist = function(a,b){
 
 this.startup = function (e) {
     this.view = new AppView();
+
+    $("body").on("click", ".fullscreen", function(e){
+        e.preventDefault();
+        app.launchFullScreen(document.documentElement);
+    });
 
     // The first tick doesn't receive a time.
     this.tick();
@@ -1400,6 +1473,34 @@ $(document).ready(_.bind(this.startup, this));
 $(window).resize(function(){
     app.view.resizeViewport(window.innerWidth || $(window).width(), window.innerHeight || $(window).height());
 });
+
+this.launchFullScreen = function launchFullScreen(element) {
+  if(element.requestFullScreen) {
+    element.requestFullScreen();
+  } else if(element.mozRequestFullScreen) {
+    element.mozRequestFullScreen();
+  } else if(element.webkitRequestFullScreen) {
+    element.webkitRequestFullScreen();
+  }
+};
+
+this.cancelFullscreen = function cancelFullscreen() {
+  if(document.cancelFullScreen) {
+    document.cancelFullScreen();
+  } else if(document.mozCancelFullScreen) {
+    document.mozCancelFullScreen();
+  } else if(document.webkitCancelFullScreen) {
+    document.webkitCancelFullScreen();
+  }
+};
+
+this.toggleFullscreen = function (element) {
+    if(document.fullscreenEnabled || document.mozFullscreenEnabled || document.webkitFullscreenEnabled){
+        app.cancelFullscreen();
+    } else {
+        app.launchFullScreen(element || document.documentElement);
+    }
+};
 
 // End namespace setup
 }).call(app, jQuery, window._, window, document);
