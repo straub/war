@@ -65,7 +65,8 @@ Vector.prototype = {
     this.each(function(x, i) {
       elements.push(fn(x, i));
     });
-    return Vector.create(elements);
+    this.elements = elements;
+    return this;
   },
   
   // Calls the iterator for each element of the vector in turn

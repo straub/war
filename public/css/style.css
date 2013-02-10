@@ -54,11 +54,11 @@ footer {
         z-index: 1000;
     }
 
-    .entity {
+    /*.entity {
         position: absolute;
         z-index: 100;
 
-        /* Enable GPU Acceleration */
+        /* Enable GPU Acceleration *//*
         -webkit-transform: translateZ(0);
         -moz-transform: translateZ(0);
         -ms-transform: translateZ(0);
@@ -88,4 +88,4 @@ footer {
             -webkit-border-radius: 50%;
             -moz-border-radius: 50%;
             border-radius: 50%;
-        }
+        }*/

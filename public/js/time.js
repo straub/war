@@ -13,6 +13,24 @@
 
 if (typeof window.time == 'undefined') {  
   (function() {
+
+    // Implementation from http://rosettacode.org/wiki/Averages/Simple_moving_average#JavaScript
+    function SimpleMovingAverager(period) {
+        var nums = [];
+        return function(num) {
+            nums.push(num);
+            if (nums.length > period)
+                nums.splice(0,1);  // remove the first element of the array
+            var sum = 0;
+            for (var i in nums)
+                sum += nums[i];
+            var n = period;
+            if (nums.length < period)
+                n = nums.length;
+            return(sum/n);
+        };
+    }
+
     window.time = {
       // start + stop taken from firebuglite.js - http://getfirebug.com/firebuglite
       start: function(name) {
@@ -20,7 +38,7 @@ if (typeof window.time == 'undefined') {
           error('start: If starting a timer manually a name must be set');
         } else {
           timeMap[name] = (new Date()).getTime();
-          log[name] = log[name] || 0;
+          log[name] = log[name] || { averager: new SimpleMovingAverager(100), total: 0, average: 0 };
         }
       },
 
@@ -28,7 +46,8 @@ if (typeof window.time == 'undefined') {
         if (name in timeMap) {
           var stop = (new Date()).getTime();
           var l = new Report(name, timeMap[name], stop);
-          log[name] += l.delta;
+          log[name].total += l.delta;
+          log[name].average = log[name].averager(l.delta);
           if (lineReport) lineReportMethod.call(this, l);
           delete timeMap[name];
         } else {
@@ -120,14 +139,7 @@ if (typeof window.time == 'undefined') {
         if (typeof name == 'undefined') {
           reportMethod.call(this, log);
         } else {
-          var i = log.length;
-          var l = [];
-          while (i--) {
-            if (name == log[i].name) {
-              l.push(log[i]);
-            }
-          }
-          reportMethod.call(this, l);
+          reportMethod.call(this, log[name]);
         }        
       },
 
