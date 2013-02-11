@@ -2,9 +2,9 @@
 // Set up namespace
 var app = app || {};
 (function( $, _, window, document, undefined ) {
-var self = this;
 // Use "self" only where "this" is unavailable
 // due to a scope change
+var self = this;
 
 this.frequency = {};
 
@@ -19,6 +19,8 @@ this.drawFlockMesh = false;
 this.drawRanges = false;
 this.drawVectors = false;
 this.drawHealthIndicators = false;
+
+this.haltRender = false;
 
 this.viewportWidth = window.innerWidth || $(window).width() || 1800;
 this.viewportHeight = window.innerHeight || $(window).height() || 800;
@@ -162,7 +164,7 @@ var Entity = app.Entity = Backbone.Model.extend(
 
         if(app.recordTiming) window.time.stop("entity - tick");
 
-        if(this.view) this.view.render();
+        if(!app.haltRender && this.view) this.view.render();
     },
 
     shouldRunAI: function (time, entityIndex, totalEntities) {
@@ -467,12 +469,14 @@ var Entity = app.Entity = Backbone.Model.extend(
         this.respawn();
         this.destroy();
 
-        app.backdropCtx.fillStyle = color;
-        for(var i = 0; i <= 10; i++){
-            app.backdropCtx.beginPath();
-            // arc(centerX, centerY, radius, 0, 2 * Math.PI, false);
-            app.backdropCtx.arc(posX+(app.random()*radius*2)-radius, posY+(app.random()*radius*2)-radius, (radius/3)+(app.random()*(radius/3)), 0, 2 * Math.PI, false);
-            app.backdropCtx.fill();
+        if(!app.haltRender){
+            app.backdropCtx.fillStyle = color;
+            for(var i = 0; i <= 10; i++){
+                app.backdropCtx.beginPath();
+                // arc(centerX, centerY, radius, 0, 2 * Math.PI, false);
+                app.backdropCtx.arc(posX+(app.random()*radius*2)-radius, posY+(app.random()*radius*2)-radius, (radius/3)+(app.random()*(radius/3)), 0, 2 * Math.PI, false);
+                app.backdropCtx.fill();
+            }
         }
 
         app.killStats[color] = app.killStats[color] || { kills: 0, deaths: 0 };
@@ -707,7 +711,7 @@ var Entity = app.Entity = Backbone.Model.extend(
 
     wander: function () {
         var randomizeSign = function(x){ return x * Math.pow(-1, Math.round(app.random()*10)); };
-        var tempJerk = Vector.Random(2).to3D().map(randomizeSign).toUnitVector();
+        var tempJerk = app.randVector().map(randomizeSign).toUnitVector();
 
         if(this.radsToDegrees(this.get("vel").angleFrom(tempJerk)) < 90)
             return tempJerk.multiply(this.get("maxJerk")*0.2);
@@ -716,12 +720,14 @@ var Entity = app.Entity = Backbone.Model.extend(
     },
 
     flock: function(neighbors) {
-        return this.cohere(neighbors, this.get("cohesionRange"))
-                    .multiply(this.get("cohesionStrength"))
-                .add(this.align(neighbors, this.get("alignmentRange"))
-                    .multiply(this.get("alignmentStrength")))
-                .add(this.separate(neighbors, this.get("separationRange"))
-                    .multiply(this.get("separationStrength")));
+        var cohesion = this.cohere(neighbors, this.get("cohesionRange"))
+                    .multiply(this.get("cohesionStrength")),
+            alignment = this.align(neighbors, this.get("alignmentRange"))
+                    .multiply(this.get("alignmentStrength")),
+            separation = this.separate(neighbors, this.get("separationRange"))
+                    .multiply(this.get("separationStrength"));
+
+        return cohesion.add(alignment).add(separation);
     },
 
     cohere: function (entities, neighborhoodRadius) {
@@ -813,7 +819,7 @@ var Entity = app.Entity = Backbone.Model.extend(
             var entityPosV = entity.get("pos"),
                 distance = posV.distanceFrom(entityPosV);
 
-            if(distance < desiredDistance){
+            if(distance > 0 && distance < desiredDistance){
                 mean = mean.add(posV.dup().subtract(entityPosV).toUnitVector().map(function(x){ return x / distance; }));
                 count++;
             }
@@ -838,7 +844,7 @@ var Entity = app.Entity = Backbone.Model.extend(
             var entityPosV = entity.get("pos"),
                 distance = posV.distanceFrom(entityPosV);
 
-            if(distance < desiredDistance){
+            if(distance > 0 && distance < desiredDistance){
                 mean = mean.add(posV.dup().subtract(entityPosV).toUnitVector().map(function(x){ return x / distance; }));
                 count++;
             }
@@ -853,7 +859,7 @@ var Entity = app.Entity = Backbone.Model.extend(
         var posV = this.get("pos"),
             distance = posV.distanceFrom(avoidV);
 
-        if(distance < desiredDistance){
+        if(distance > 0 && distance < desiredDistance){
             return posV.dup().subtract(avoidV).toUnitVector().map(function(x){ return x / distance; });
         }
 
@@ -1564,7 +1570,7 @@ this.tick = _.bind(function tick (time) {
 
     // The overlay layer should not persist,
     // so we have to clear it every frame.
-    this.overlayCtx.clearRect(0, 0, app.overlay.width, app.overlay.height);
+    if(!app.haltRender) this.overlayCtx.clearRect(0, 0, app.overlay.width, app.overlay.height);
 
     // This is above the entity loops so the player
     // can fire his own weapons before autoFire kicks in.
@@ -1583,11 +1589,13 @@ this.tick = _.bind(function tick (time) {
 
     this.entities.sortEntities();
 
-    // Fade out the backdrop layer.
-    this.backdropCtx.fillStyle="#ffffff";
-    this.backdropCtx.globalAlpha=0.02;
-    this.backdropCtx.fillRect(0,0,app.viewportWidth,app.viewportHeight);
-    this.backdropCtx.globalAlpha=1;
+    if(!app.haltRender){
+        // Fade out the backdrop layer.
+        this.backdropCtx.fillStyle="#ffffff";
+        this.backdropCtx.globalAlpha=0.02;
+        this.backdropCtx.fillRect(0,0,app.viewportWidth,app.viewportHeight);
+        this.backdropCtx.globalAlpha=1;
+    }
 
     this.lastAnimationTime = time || (new Date()).getTime();
 
@@ -1621,7 +1629,7 @@ this.getEntDist = function(a,b){
 this.startup = function (e) {
     this.view = new AppView();
 
-    $("body").on("click", ".fullscreen", function(e){
+    $("body").on("click", ".fullscreen", function (e) {
         e.preventDefault();
         app.launchFullScreen(document.documentElement);
     });
@@ -1664,6 +1672,19 @@ this.toggleFullscreen = function (element) {
     }
 };
 
+// Reimplemented from Sylvester so it uses
+// app.random() and is reproducable.
+this.randVector = function () {
+    var n = 2,
+        elements = [];
+    do { elements.push(app.random());
+    } while (--n);
+    // Currently use 3 dimensional vectors,
+    // but all Z dimensions are zero.
+    elements.push(0);
+    return Vector.create(elements);
+};
+
 // From http://stackoverflow.com/a/901144
 function getParameterByName(name) {
   name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
@@ -1695,7 +1716,7 @@ function getParameterByName(name) {
             var currTime = new Date().getTime();
             var timeToCall = Math.max(0, 16 - (currTime - lastTime));
             var id = window.setTimeout(function() { callback(currTime + timeToCall); },
-              timeToCall);
+              app.haltRender ? 0 : timeToCall);
             lastTime = currTime + timeToCall;
             return id;
         };
