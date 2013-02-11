@@ -451,7 +451,7 @@ var Entity = app.Entity = Backbone.Model.extend(
             new ProjView({ model: proj });
         });
 
-        this.attributes.lastFired = app.lastAnimationTime;
+        this.attributes.lastFired = time;
 
         /*app.projectiles.add(projectiles);*/
         app.entities.add(projectiles);
@@ -502,7 +502,12 @@ var Entity = app.Entity = Backbone.Model.extend(
             color = this.get("color"),
             playerControlled = this.get("playerControlled");
 
-        setTimeout(function(){
+        // Using setTimeout here causes interleaving
+        // and inconsistency in my randomness.
+        // Could potentially use a counter, since I
+        // already have a tick loop running, but I'm
+        // not sure I care enough about delayed respawns
+        /*setTimeout(function(){*/
             var entity = coll.spawnEntity(
                 playerControlled ? {
                     playerControlled: playerControlled
@@ -525,7 +530,7 @@ var Entity = app.Entity = Backbone.Model.extend(
                 app.backdropCtx.stroke();
             }
 
-        }, 1000+(app.random()*2000));
+        /*}, 1000+(app.random()*2000));*/
     },
 
     getNeighbors: function (neighborhoodRadius) {
@@ -1557,6 +1562,9 @@ this.lastAnimationTime = 0;
 this.baseTickLength = 18;
 this.tickLength = this.baseTickLength;
 
+this.startTime = 0;
+this.tickCount = 0;
+
 this.tickPhase = 0;
 this.tickPhaseLength = 100;
 
@@ -1564,8 +1572,10 @@ this.tick = _.bind(function tick (time) {
     if(app.recordTiming) window.time.start("tick");
 
     if(time){
-        time = (new Date()).getTime();
+        time = this.startTime + this.tickCount*this.baseTickLength;
         app.tickLength = time - app.lastAnimationTime;
+    } else {
+        this.startTime = (new Date()).getTime();
     }
 
     // The overlay layer should not persist,
@@ -1597,7 +1607,7 @@ this.tick = _.bind(function tick (time) {
         this.backdropCtx.globalAlpha=1;
     }
 
-    this.lastAnimationTime = time || (new Date()).getTime();
+    this.lastAnimationTime = (new Date()).getTime();
 
     if(!this.lastSecond) this.lastSecond = this.lastAnimationTime;
     this.framesSeen++;
@@ -1605,9 +1615,10 @@ this.tick = _.bind(function tick (time) {
     if(this.lastAnimationTime - this.lastSecond >= 1000){
         this.frameRate = frameRateAverager(this.framesSeen);
         this.framesSeen = 0;
-        this.lastSecond = time;
+        this.lastSecond = this.lastAnimationTime;
     }
 
+    this.tickCount++;
     this.tickPhase++;
     if(this.tickPhase > this.tickPhaseLength) this.tickPhase = 0;
 
