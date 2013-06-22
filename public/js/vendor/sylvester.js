@@ -104,6 +104,12 @@ Vector.prototype = {
     return Math.acos(theta);
   },
 
+  // Returns the angle between the vector and the argument (also a vector)
+  angleFromFull: function(vector) {
+    var V = vector.elements || vector;
+    return Math.atan2(V[0], V[1]) - Math.atan2(this.elements[0], this.elements[1]);
+  },
+
   // Returns true iff the vector is parallel to the argument
   isParallelTo: function(vector) {
     var angle = this.angleFrom(vector);
@@ -296,6 +302,10 @@ Vector.prototype = {
   setElements: function(els) {
     this.elements = (els.elements || els);//.slice();
     return this;
+  },
+
+  toJSON: function() {
+    return this.elements;
   }
 };
   
