@@ -1,6 +1,6 @@
 
 define([
-    'jquery','underscore','backbone','sylvester','stats',
+    'jquery','underscore','backbone','app/vector','stats',
     'app/models/entity','app/alea','app/averager','app/views/app'],
 function ($, _, Backbone, Vector, Stats, Entity, Alea, SimpleMovingAverager, AppView) {
 
@@ -16,7 +16,7 @@ return (function War($, _, window, document, undefined) {
     this.randomSeed = getParameterByName("seed") || Math.random();
     this.random = new Alea(app.randomSeed);
 
-    this.initialSpawnNum = getParameterByName("spawn") || 10*4;
+    this.initialSpawnNum = getParameterByName("spawn") || 5*4;
 
     this.recordTiming = false;
 
@@ -42,8 +42,6 @@ return (function War($, _, window, document, undefined) {
     this.entityCounts = { Entity: 0, Proj: 0 };
 
     var EntityView = Entity.View;
-
-    var EntityCollection = Entity.Collection;
 
     var Proj = Entity.Proj;
 
@@ -86,13 +84,21 @@ return (function War($, _, window, document, undefined) {
         if (app.mousedown) app.view.firePlayerControlled();
 
         var entity,
-            entitiesLength = this.entities.length;
+            entitiesLength = this.entities.length,
+            particle,
+            particlesLength = this.particles.length;
 
         // The hot tick loop.
         for (var i = 0; i < entitiesLength; i++) {
             entity = this.entities.at(i);
             entity && entity.tick(time, i, entitiesLength);
-        };
+        }
+
+        // Tick particle effects.
+        for (i = 0; i < particlesLength; i++) {
+            particle = this.particles.at(i);
+            particle && particle.tick(time, i, entitiesLength);
+        }
 
         this.entities.sortEntities();
 
@@ -112,13 +118,21 @@ return (function War($, _, window, document, undefined) {
         if (!app.haltRender) this.overlayCtx.clearRect(0, 0, app.overlay.width, app.overlay.height);
 
         var entity,
-            entitiesLength = this.entities.length;
+            entitiesLength = this.entities.length,
+            particle,
+            particlesLength = this.particles.length;
 
         // The hot draw loop.
         for (var i = 0; i < entitiesLength; i++) {
             entity = this.entities.at(i);
             entity && entity.draw();
-        };
+        }
+
+        // Draw particle effects.
+        for (var i = 0; i < particlesLength; i++) {
+            particle = this.particles.at(i);
+            particle && particle.draw();
+        }
 
         /*if(!app.haltRender){
             // Fade out the backdrop layer.
@@ -295,14 +309,7 @@ return (function War($, _, window, document, undefined) {
     // Reimplemented from Sylvester so it uses
     // app.random() and is reproducable.
     this.randVector = function () {
-        var n = 2,
-            elements = [];
-        do { elements.push(app.random());
-        } while (--n);
-        // Currently use 3 dimensional vectors,
-        // but all Z dimensions are zero.
-        elements.push(0);
-        return Vector.create(elements);
+        return Vector.create(app.random(), app.random());
     };
 
     // From http://stackoverflow.com/a/901144

@@ -46,7 +46,7 @@ define(function () {
 
         /** Returns the number of elements the vector has. */
         x.dimensions = function () {
-          return this.length;
+            return this.length;
         };
 
         /** Returns the angle between the vector and the argument (also a vector) */
@@ -73,6 +73,10 @@ define(function () {
             return Math.atan2(b[0], b[1]) - Math.atan2(this[0], this[1]);
         };
 
+        x.heading = function () {
+            return this.angleFromFull([1,-1]);
+        };
+
         /** Returns the vector's distance from the argument, when considered as a point in space. */
         x.distanceFrom = function (b) {
           if (b.length != this.length) { return null; }
@@ -97,6 +101,8 @@ define(function () {
             // Polar to cartesian for the new xy components
             this[0] = m * Math.cos(a);
             this[1] = m * Math.sin(a);
+
+            return this;
         };
         
         /** Are two vectors equal? */
@@ -132,7 +138,9 @@ define(function () {
         
         /** Turn this vector into a unit vector. */
         x.unit = x.toUnitVector = function (b) {
-            return this.divide(this.abs());
+            var mag = this.abs();
+            if (mag === 0) return this;
+            return this.divide(mag);
         }
         
         /** Return the absolute value of this vector. */
