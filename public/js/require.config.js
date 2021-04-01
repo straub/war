@@ -6,7 +6,9 @@ var requireConfig = {
         'war': '../war',
         'app': '../app',
         'socket.io': '/socket.io/socket.io.js',
-        'jquery': ['//ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min','jquery']
+        'piwik': '//analytics.straubdev.com/piwik',
+        'jquery': ['//ajax.googleapis.com/ajax/libs/jquery/1.10.1/jquery.min','jquery'],
+        'bootstrap': '//netdna.bootstrapcdn.com/bootstrap/3.0.0/js/bootstrap.min'
     },
     shim: {
         'jquery': {

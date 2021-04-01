@@ -1,6 +1,6 @@
 
 define([
-    'jquery','backbone','sylvester',
+    'jquery','backbone','app/vector',
     'app/models/entity','app/models/app','app/views/settings'
     ], function ($, Backbone, Vector, Entity, AppModel, SettingsView) {
 
@@ -24,6 +24,7 @@ define([
             });
 
             var entities = this.model.entities = app.entities = new EntityCollection();
+            var particles = this.model.particles = app.particles = new EntityCollection();
 
             entities.spawnEntities(app.initialSpawnNum);
             /*entities.spawnEntity({
@@ -89,7 +90,7 @@ define([
         },
 
         firePlayerControlled: function () {
-            var pos = Vector.create([app.mouseX, app.mouseY, 0]),
+            var pos = Vector.create(app.mouseX, app.mouseY),
             time = (new Date()).getTime();
 
             app.entities.chain().filter(function(ent){

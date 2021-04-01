@@ -39,6 +39,10 @@ footer {
     z-index: 5;
 }
 
+#settings {
+    color: #333;
+}
+
 #app {
     position: relative;
     width: 100%;
