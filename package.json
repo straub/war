@@ -7,8 +7,6 @@
         "email": "Scinvention@gmail.com"
     },
     "private": true,
-    "dependencies": {
-      "express": "2.5.10"
-    },
+    "dependencies": {},
     "engine": "node >= 0.8.8"
 }
