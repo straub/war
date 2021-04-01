@@ -1,6 +1,6 @@
 
 var requireConfig = {
-    baseUrl: '/public/js/vendor',
+    baseUrl: './public/js/vendor',
     waitSeconds: 15,
     paths: {
         'war': '../war',
